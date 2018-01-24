@@ -83,6 +83,7 @@ class Vls.Server {
 
         server.add_handler ("initialize", this.initialize);
         server.add_handler ("shutdown", this.shutdown);
+        server.add_handler ("textDocument/completion", this.textDocumentCompletion);
         notif_handlers["exit"] = this.exit;
 
         server.add_handler ("textDocument/definition", this.textDocumentDefinition);
@@ -413,7 +414,11 @@ class Vls.Server {
             client.reply (id, buildDict(
                 capabilities: buildDict (
                     textDocumentSync: new Variant.int16 (TextDocumentSyncKind.Full),
-                    definitionProvider: new Variant.boolean (true)
+                    definitionProvider: new Variant.boolean (true),
+                    completionProvider: buildDict(
+                        resolveProvider: new Variant.boolean (false),
+                        triggerCharacters: new Variant.strv (new string[] { ".", "->" })
+                    )
                 )
             ));
         } catch (Error e) {
@@ -725,6 +730,219 @@ class Vls.Server {
                 }
             }
         }));
+    }
+
+    void textDocumentCompletion (Jsonrpc.Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = parse_variant <LanguageServer.TextDocumentPositionParams> (@params);
+        log.printf ("executing completion in %s at %u,%u\n", p.textDocument.uri,
+            p.position.line, p.position.character);
+        var doc = ctx.get_source_file (p.textDocument.uri);
+        if (doc == null) {
+            log.printf (@"error: unrecognized text file '$(p.textDocument.uri)'");
+            client.reply (id, null);
+            return;
+        }
+        var fs = new FindSymbol (doc.file, p.position.to_libvala ());
+
+        Vala.CodeNode best = null;
+
+        log.printf (@"completion: found $(fs.result.size) results\n");
+
+        if (fs.result.size == 0) {
+            client.reply (id, null);
+            return;
+        }
+
+        foreach (var node in fs.result) {
+            if (best == null) {
+                best = node;
+            } else if (best.source_reference.begin.column <= node.source_reference.begin.column &&
+                       node.source_reference.end.column <= best.source_reference.end.column) {
+                best = node;
+            }
+        }
+        {
+            var sr = best.source_reference;
+            var from = (long)Server.get_string_pos (doc.file.content, sr.begin.line-1, sr.begin.column-1);
+            var to = (long)Server.get_string_pos (doc.file.content, sr.end.line-1, sr.end.column);
+            string contents = doc.file.content [from:to];
+            log.printf ("Got node: %s @ %s = %s\n", best.type_name, sr.to_string(), contents);
+        }
+
+        var completions = new Gee.ArrayList<CompletionItem> ();
+
+
+        if (best is Vala.MemberAccess) {
+            var ma = best as Vala.MemberAccess;
+
+            if (ma.inner == null) {
+                log.printf ("inner is null\n");
+                client.reply (id, null);
+                return;
+            }
+
+            var type = ma.inner.value_type.data_type;
+
+            if (type is Vala.ObjectTypeSymbol) {
+                /**
+                 * Complete the members of this object, such as the fields,
+                 * properties, and methods.
+                 */
+                var object_type = type as Vala.ObjectTypeSymbol;
+
+                foreach (var method_sym in object_type.get_methods ())
+                    completions.add (new CompletionItem () {
+                        label = method_sym.name,
+                        kind = CompletionItemKind.Method
+                    });
+
+                foreach (var signal_sym in object_type.get_signals ())
+                    completions.add (new CompletionItem () {
+                        label = signal_sym.name,
+                        kind = CompletionItemKind.Method
+                    });
+
+                foreach (var prop_sym in object_type.get_properties ())
+                    completions.add (new CompletionItem () {
+                        label = prop_sym.name,
+                        kind = CompletionItemKind.Property
+                    });
+
+                // do extra specific stuff for classes/interfaces
+                if (object_type is Vala.Class) {
+                    var class_type = object_type as Vala.Class;
+
+                    foreach (var constant_sym in class_type.get_constants ())
+                        completions.add (new CompletionItem () {
+                            label = constant_sym.name,
+                            kind = CompletionItemKind.Value
+                        });
+
+                    foreach (var field_sym in class_type.get_fields ())
+                        completions.add (new CompletionItem () {
+                            label = field_sym.name,
+                            kind = CompletionItemKind.Field
+                        });
+
+                    // get inner types
+                    foreach (var class_sym in class_type.get_classes ())
+                        completions.add (new CompletionItem () {
+                            label = class_sym.name,
+                            kind = CompletionItemKind.Class
+                        });
+
+                    foreach (var struct_sym in class_type.get_structs ())
+                        completions.add (new CompletionItem () {
+                            label = struct_sym.name,
+                            kind = CompletionItemKind.Class
+                        });
+
+                    foreach (var enum_sym in class_type.get_enums ())
+                        completions.add (new CompletionItem () {
+                            label = enum_sym.name,
+                            kind = CompletionItemKind.Enum
+                        });
+
+                    foreach (var delegate_sym in class_type.get_delegates ())
+                        completions.add (new CompletionItem () {
+                            label = delegate_sym.name,
+                            kind = CompletionItemKind.Class
+                        });
+                } else if (object_type is Vala.Interface) {
+                    // TODO
+                }
+            } else if (type is Vala.Enum) {
+                /**
+                 * Complete members of this enum, such as the values, methods,
+                 * and constants.
+                 */
+                var enum_type = type as Vala.Enum;
+
+                foreach (var value_sym in enum_type.get_values ())
+                    completions.add (new CompletionItem () {
+                        label = value_sym.name,
+                        kind = CompletionItemKind.Value
+                    });
+
+                foreach (var method_sym in enum_type.get_methods ())
+                    completions.add (new CompletionItem () {
+                        label = method_sym.name,
+                        kind = CompletionItemKind.Method
+                    });
+
+                foreach (var constant_sym in enum_type.get_constants ())
+                    completions.add (new CompletionItem () {
+                        label = constant_sym.name,
+                        kind = CompletionItemKind.Field /* FIXME: is this appropriate? */
+                    });
+            } else if (type is Vala.ErrorDomain) {
+                /**
+                 * Get all the members of the error domain, such as the error
+                 * codes and the methods.
+                 */
+                var errdomain_type = type as Vala.ErrorDomain;
+
+                foreach (var code_sym in errdomain_type.get_codes ())
+                    completions.add (new CompletionItem () {
+                        label = code_sym.name,
+                        kind = CompletionItemKind.Value
+                    });
+
+                foreach (var method_sym in errdomain_type.get_codes ())
+                    completions.add (new CompletionItem () {
+                        label = method_sym.name,
+                        kind = CompletionItemKind.Method
+                    });
+            } else if (type is Vala.Struct) {
+                /**
+                 * Gets all of the members of the struct.
+                 */
+                var struct_type = type as Vala.Struct;
+
+                foreach (var constant_sym in struct_type.get_constants ())
+                    completions.add (new CompletionItem () {
+                        label = constant_sym.name,
+                        kind = CompletionItemKind.Value
+                    });
+
+                foreach (var field_sym in struct_type.get_fields ())
+                    completions.add (new CompletionItem () {
+                        label = field_sym.name,
+                        kind = CompletionItemKind.Field
+                    });
+
+                foreach (var method_sym in struct_type.get_methods ())
+                    completions.add (new CompletionItem () {
+                        label = method_sym.name,
+                        kind = CompletionItemKind.Method
+                    });
+
+                foreach (var prop_sym in struct_type.get_properties ())
+                    completions.add (new CompletionItem () {
+                        label = prop_sym.name,
+                        kind = CompletionItemKind.Property
+                    });
+            } else {
+                log.printf (@"unknown type node $type\n");
+                client.reply (id, null);
+                return;
+            }
+        } else if (best is Vala.ElementAccess) {
+            // TODO
+        } else if (best is Vala.PointerIndirection) {
+            // TODO
+        }
+
+        try {
+            log.printf (@"$method: showing completions for $(p.textDocument.uri)...\n");
+            client.reply (id,
+                object_to_variant (new CompletionList () {
+                    isIncomplete = false,
+                    items = completions.to_array ()
+                }));
+        } catch (Error e) {
+            log.printf (@"$method: failed to reply to client: $(e.message)\n");
+        }
     }
 
     void shutdown (Jsonrpc.Server self, Jsonrpc.Client client, string method, Variant id, Variant @params) {

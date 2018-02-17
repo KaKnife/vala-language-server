@@ -742,14 +742,17 @@ class Vls.Server {
             client.reply (id, null);
             return;
         }
-        var fs = new FindSymbol (doc.file, p.position.to_libvala ());
+
+        var pos = p.position.to_libvala ();
+        pos.character -= 1;
+        var fs = new FindSymbol (doc.file, pos); 
 
         Vala.CodeNode best = null;
 
         log.printf (@"completion: found $(fs.result.size) results\n");
 
         if (fs.result.size == 0) {
-            client.reply (id, null);
+            client.reply(id, null);
             return;
         }
 
@@ -761,6 +764,7 @@ class Vls.Server {
                 best = node;
             }
         }
+
         {
             var sr = best.source_reference;
             var from = (long)Server.get_string_pos (doc.file.content, sr.begin.line-1, sr.begin.column-1);
@@ -771,18 +775,12 @@ class Vls.Server {
 
         var completions = new Gee.ArrayList<CompletionItem> ();
 
-
         if (best is Vala.MemberAccess) {
             var ma = best as Vala.MemberAccess;
+            Vala.TypeSymbol type;
 
-            if (ma.inner == null) {
-                log.printf ("inner is null\n");
-                client.reply (id, null);
-                return;
-            }
-
-            var type = ma.inner.value_type.data_type;
-
+            type = ma.value_type.data_type;
+            
             if (type is Vala.ObjectTypeSymbol) {
                 /**
                  * Complete the members of this object, such as the fields,
@@ -790,11 +788,16 @@ class Vls.Server {
                  */
                 var object_type = type as Vala.ObjectTypeSymbol;
 
-                foreach (var method_sym in object_type.get_methods ())
+                log.printf("completion: type is object\n");
+
+                foreach (var method_sym in object_type.get_methods ()) {
+                    if (method_sym.name == ".new")
+                        continue;
                     completions.add (new CompletionItem () {
                         label = method_sym.name,
                         kind = CompletionItemKind.Method
                     });
+                }
 
                 foreach (var signal_sym in object_type.get_signals ())
                     completions.add (new CompletionItem () {
@@ -812,6 +815,7 @@ class Vls.Server {
                 if (object_type is Vala.Class) {
                     var class_type = object_type as Vala.Class;
 
+                    log.printf("completion: type is class\n");
                     foreach (var constant_sym in class_type.get_constants ())
                         completions.add (new CompletionItem () {
                             label = constant_sym.name,
@@ -849,8 +853,14 @@ class Vls.Server {
                             kind = CompletionItemKind.Class
                         });
                 } else if (object_type is Vala.Interface) {
-                    // TODO
+                    var iface_type = object_type as Vala.Interface;
+
+                    log.printf("TODO\n");
+                } else {
+                    log.printf("something else\n");
                 }
+
+                log.printf(@"completions.size = $(completions.size)\n");
             } else if (type is Vala.Enum) {
                 /**
                  * Complete members of this enum, such as the values, methods,
@@ -923,9 +933,7 @@ class Vls.Server {
                         kind = CompletionItemKind.Property
                     });
             } else {
-                log.printf (@"unknown type node $type\n");
-                client.reply (id, null);
-                return;
+                log.printf (@"unknown type node $(type) \n");
             }
         } else if (best is Vala.ElementAccess) {
             // TODO
@@ -933,13 +941,14 @@ class Vls.Server {
             // TODO
         }
 
+        var completions_variants = new ArrayList<Variant>();
+
+        foreach (var obj in completions)
+            completions_variants.add (object_to_variant (obj));
+
         try {
             log.printf (@"$method: showing completions for $(p.textDocument.uri)...\n");
-            client.reply (id,
-                object_to_variant (new CompletionList () {
-                    isIncomplete = false,
-                    items = completions.to_array ()
-                }));
+            client.reply (id, new Variant.array (VariantType.VARDICT, completions_variants.to_array ()));
         } catch (Error e) {
             log.printf (@"$method: failed to reply to client: $(e.message)\n");
         }

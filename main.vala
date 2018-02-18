@@ -732,54 +732,21 @@ class Vls.Server {
         }));
     }
 
-    void textDocumentCompletion (Jsonrpc.Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = parse_variant <LanguageServer.TextDocumentPositionParams> (@params);
-        log.printf ("executing completion in %s at %u,%u\n", p.textDocument.uri,
-            p.position.line, p.position.character);
-        var doc = ctx.get_source_file (p.textDocument.uri);
-        if (doc == null) {
-            log.printf (@"error: unrecognized text file '$(p.textDocument.uri)'");
-            client.reply (id, null);
-            return;
-        }
-
-        var pos = p.position.to_libvala ();
-        pos.character -= 1;
-        var fs = new FindSymbol (doc.file, pos); 
-
-        Vala.CodeNode best = null;
-
-        log.printf (@"completion: found $(fs.result.size) results\n");
-
-        if (fs.result.size == 0) {
-            client.reply(id, null);
-            return;
-        }
-
-        foreach (var node in fs.result) {
-            if (best == null) {
-                best = node;
-            } else if (best.source_reference.begin.column <= node.source_reference.begin.column &&
-                       node.source_reference.end.column <= best.source_reference.end.column) {
-                best = node;
-            }
-        }
-
-        {
-            var sr = best.source_reference;
-            var from = (long)Server.get_string_pos (doc.file.content, sr.begin.line-1, sr.begin.column-1);
-            var to = (long)Server.get_string_pos (doc.file.content, sr.end.line-1, sr.end.column);
-            string contents = doc.file.content [from:to];
-            log.printf ("Got node: %s @ %s = %s\n", best.type_name, sr.to_string(), contents);
-        }
-
-        var completions = new Gee.ArrayList<CompletionItem> ();
-
+    void add_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions) {
         if (best is Vala.MemberAccess) {
             var ma = best as Vala.MemberAccess;
             Vala.TypeSymbol type;
 
+            log.printf ("symbol_reference is %s\n", ma.symbol_reference.to_string ());
+            log.printf ("value_type is %s, formal_value_type is %s, target_type is %s, formal_target_type is %s\n",
+                    ma.value_type.to_string (), 
+                    ma.formal_value_type != null ? ma.formal_value_type.to_string () : null, 
+                    ma.target_type.to_string (),
+                    ma.formal_target_type != null ? ma.formal_target_type.to_string () : null);
+            log.printf ("inner is %s\n", ma.inner != null ? ma.inner.to_string () : null);
             type = ma.value_type.data_type;
+
+            log.printf ("type is %s", type.to_string ());
             
             if (type is Vala.ObjectTypeSymbol) {
                 /**
@@ -816,11 +783,12 @@ class Vls.Server {
                     var class_type = object_type as Vala.Class;
 
                     log.printf("completion: type is class\n");
-                    foreach (var constant_sym in class_type.get_constants ())
+                    foreach (var constant_sym in class_type.get_constants ()) {
                         completions.add (new CompletionItem () {
                             label = constant_sym.name,
                             kind = CompletionItemKind.Value
                         });
+                    }
 
                     foreach (var field_sym in class_type.get_fields ())
                         completions.add (new CompletionItem () {
@@ -855,7 +823,44 @@ class Vls.Server {
                 } else if (object_type is Vala.Interface) {
                     var iface_type = object_type as Vala.Interface;
 
-                    log.printf("TODO\n");
+                    foreach (var constant_sym in iface_type.get_constants ()) {
+                        completions.add (new CompletionItem () {
+                            label = constant_sym.name,
+                            kind = CompletionItemKind.Value
+                        });
+                    }
+
+                    foreach (var field_sym in iface_type.get_fields ())
+                        completions.add (new CompletionItem () {
+                            label = field_sym.name,
+                            kind = CompletionItemKind.Field
+                        });
+
+                    // get inner types
+                    foreach (var class_sym in iface_type.get_classes ())
+                        completions.add (new CompletionItem () {
+                            label = class_sym.name,
+                            kind = CompletionItemKind.Class
+                        });
+
+                    foreach (var struct_sym in iface_type.get_structs ())
+                        completions.add (new CompletionItem () {
+                            label = struct_sym.name,
+                            kind = CompletionItemKind.Class
+                        });
+
+                    foreach (var enum_sym in iface_type.get_enums ())
+                        completions.add (new CompletionItem () {
+                            label = enum_sym.name,
+                            kind = CompletionItemKind.Enum
+                        });
+
+                    foreach (var delegate_sym in iface_type.get_delegates ())
+                        completions.add (new CompletionItem () {
+                            label = delegate_sym.name,
+                            kind = CompletionItemKind.Class
+                        });
+
                 } else {
                     log.printf("something else\n");
                 }
@@ -932,14 +937,66 @@ class Vls.Server {
                         label = prop_sym.name,
                         kind = CompletionItemKind.Property
                     });
+            } else if (type is Vala.Delegate) {
+                var delg_type = type as Vala.Delegate;
+
+                log.printf (@"delegate type \n");
             } else {
-                log.printf (@"unknown type node $(type) \n");
+                log.printf (@"unknown type node $(type).\n");
             }
         } else if (best is Vala.ElementAccess) {
             // TODO
         } else if (best is Vala.PointerIndirection) {
             // TODO
+        } else {
+            log.printf (@"some other type of expression: $(best)");
         }
+
+    }
+
+    void textDocumentCompletion (Jsonrpc.Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = parse_variant <LanguageServer.TextDocumentPositionParams> (@params);
+        log.printf ("executing completion in %s at %u,%u\n", p.textDocument.uri,
+            p.position.line, p.position.character);
+        var doc = ctx.get_source_file (p.textDocument.uri);
+        if (doc == null) {
+            log.printf (@"error: unrecognized text file '$(p.textDocument.uri)'");
+            client.reply (id, null);
+            return;
+        }
+
+        var pos = p.position.to_libvala ();
+        pos.character -= 1;
+        var fs = new FindSymbol (doc.file, pos); 
+
+        Vala.CodeNode best = null;
+
+        log.printf (@"completion: found $(fs.result.size) results\n");
+
+        if (fs.result.size == 0) {
+            client.reply(id, null);
+            return;
+        }
+
+        foreach (var node in fs.result) {
+            if (best == null) {
+                best = node;
+            } else if (best.source_reference.begin.column <= node.source_reference.begin.column &&
+                       node.source_reference.end.column <= best.source_reference.end.column) {
+                best = node;
+            }
+        }
+
+        {
+            var sr = best.source_reference;
+            var from = (long)Server.get_string_pos (doc.file.content, sr.begin.line-1, sr.begin.column-1);
+            var to = (long)Server.get_string_pos (doc.file.content, sr.end.line-1, sr.end.column);
+            string contents = doc.file.content [from:to];
+            log.printf ("Got node: %s @ %s = %s\n", best.type_name, sr.to_string(), contents);
+        }
+
+        var completions = new Gee.ArrayList<CompletionItem> ();
+        add_completions (best, completions);
 
         var completions_variants = new ArrayList<Variant>();
 

@@ -6,7 +6,7 @@ class Vls.FindSymbol : Vala.CodeVisitor {
     bool match (Vala.CodeNode node) {
         var sr = node.source_reference;
         if (sr == null) {
-            stderr.printf ("node %s has no source reference\n", node.type_name);
+            // stderr.printf ("node %s has no source reference\n", node.type_name);
             return false;
         }
 
@@ -16,25 +16,27 @@ class Vls.FindSymbol : Vala.CodeVisitor {
         }
 
         if (sr.begin.line != sr.end.line) {
+            /*
             var from = (long)Server.get_string_pos (file.content, sr.begin.line-1, sr.begin.column-1);
             var to = (long)Server.get_string_pos (file.content, sr.end.line-1, sr.end.column);
             string contents = file.content [from:to];
             stderr.printf ("Multiline node: %s: %s", node.type_name, sr.to_string ());
             stderr.printf ("\n\t%s", contents.replace ("\n", " "));
             stderr.printf ("\n");
+            */
 
             return false;
         }
 
         if (sr.begin.line != pos.line) {
-            stderr.printf ("%s @ %s not on line %u\n", node.type_name, sr.to_string (), pos.line);
+            // stderr.printf ("%s @ %s not on line %u\n", node.type_name, sr.to_string (), pos.line);
             return false;
         }
         if (sr.begin.column <= pos.character && pos.character <= sr.end.column) {
             stderr.printf ("Got node: %s @ %s\n", node.type_name, sr.to_string ());
             return true;
         } else {
-            stderr.printf ("%s @ %s not around char %u\n", node.type_name, sr.to_string (), pos.character);
+            // stderr.printf ("%s @ %s not around char %u\n", node.type_name, sr.to_string (), pos.character);
             return false;
         }
     }

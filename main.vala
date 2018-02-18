@@ -119,6 +119,14 @@ class Vls.Server {
         }
     }
 
+    void reply_to_client (string method, Jsonrpc.Client client, Variant id, Variant thing) {
+        try {
+            client.reply (id, thing);
+        } catch (Error e) {
+            log.printf ("%s: Failed to reply to client: %s\n", method, e.message);
+        }
+    }
+
     bool is_source_file (string filename) {
         return filename.has_suffix (".vapi") || filename.has_suffix (".vala")
             || filename.has_suffix (".gs");
@@ -678,7 +686,7 @@ class Vls.Server {
         var fs = new FindSymbol (file, p.position.to_libvala ());
 
         if (fs.result.size == 0) {
-            client.reply (id, null);
+            reply_to_client (method, client, id, buildDict(null));
             return;
         }
 
@@ -713,23 +721,27 @@ class Vls.Server {
         }
         if (uri == null) {
             log.printf ("error: couldn't find source file for %s\n", best.source_reference.file.filename);
-            client.reply (id, null);
+            reply_to_client (method, client, id, buildDict (null));
             return;
         }
 
-        client.reply (id, object_to_variant (new LanguageServer.Location () {
-            uri = uri,
-            range = new Range () {
-                start = new Position () {
-                    line = best.source_reference.begin.line - 1,
-                    character = best.source_reference.begin.column - 1
-                },
-                end = new Position () {
-                    line = best.source_reference.end.line - 1,
-                    character = best.source_reference.end.column
+        try {
+            client.reply (id, object_to_variant (new LanguageServer.Location () {
+                uri = uri,
+                range = new Range () {
+                    start = new Position () {
+                        line = best.source_reference.begin.line - 1,
+                        character = best.source_reference.begin.column - 1
+                    },
+                    end = new Position () {
+                        line = best.source_reference.end.line - 1,
+                        character = best.source_reference.end.column
+                    }
                 }
-            }
-        }));
+            }));
+        } catch (Error e) {
+            log.printf ("Failed to reply to client.\n");
+        }
     }
 
     void add_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions) {
@@ -961,7 +973,7 @@ class Vls.Server {
         var doc = ctx.get_source_file (p.textDocument.uri);
         if (doc == null) {
             log.printf (@"error: unrecognized text file '$(p.textDocument.uri)'");
-            client.reply (id, null);
+            reply_to_client (method, client, id, buildDict(null));
             return;
         }
 
@@ -974,7 +986,7 @@ class Vls.Server {
         log.printf (@"completion: found $(fs.result.size) results\n");
 
         if (fs.result.size == 0) {
-            client.reply(id, null);
+            reply_to_client (method, client, id, buildDict(null));
             return;
         }
 
@@ -1000,24 +1012,22 @@ class Vls.Server {
 
         var completions_variants = new ArrayList<Variant>();
 
-        foreach (var obj in completions)
-            completions_variants.add (object_to_variant (obj));
-
-        try {
-            log.printf (@"$method: showing completions for $(p.textDocument.uri)...\n");
-            client.reply (id, new Variant.array (VariantType.VARDICT, completions_variants.to_array ()));
-        } catch (Error e) {
-            log.printf (@"$method: failed to reply to client: $(e.message)\n");
+        foreach (var obj in completions) {
+            try {
+                completions_variants.add (object_to_variant (obj));
+            } catch (Error e) {
+                log.printf ("%s: Error: failed to convert object to variant.\n", method);
+            }
         }
+
+        log.printf (@"$method: showing completions for $(p.textDocument.uri)...\n");
+        reply_to_client (method, client, id, 
+            new Variant.array (VariantType.VARDICT, completions_variants.to_array ()));
     }
 
     void shutdown (Jsonrpc.Server self, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         ctx.clear ();
-        try {
-            client.reply (id, buildDict(null));
-        } catch (Error e) {
-            log.printf (@"shutdown: failed to reply to client: $(e.message)\n");
-        }
+        reply_to_client (method, client, id, buildDict(null));
         log.printf ("shutting down...\n");
     }
 

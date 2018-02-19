@@ -184,7 +184,7 @@ class LanguageServer.Hover : Object {
 	/**
 	 * The hover's content
 	 */
-	public MarkedString[] contents 	{ get; set; }
+	public Array<MarkedString> contents 	{ get; set; }
 	/**
 	 * An optional range is a range inside a text document 
 	 * that is used to visualize a hover, e.g. by changing the background color.
@@ -193,7 +193,10 @@ class LanguageServer.Hover : Object {
 
 	public Hover (Range range, MarkedString[] contents = new MarkedString[] {}) {
 		this.range = range;
-		this.contents = contents;
+		this.contents = new Array<MarkedString> ();
+
+		foreach (var c in contents)
+			this.contents.append_val (c);
 	}
 }
 
@@ -259,7 +262,7 @@ class LanguageServer.Command : Object {
 	 * Arguments that the command handler should be
 	 * invoked with.
 	 */
-	public Variant[]? arguments { get; set; }
+	public Array<Variant> arguments { get; set; }
 }
 
 class LanguageServer.CompletionItem : Object {
@@ -317,7 +320,7 @@ class LanguageServer.CompletionItem : Object {
 	 * selecting this completion. Edits must not overlap with the main edit
 	 * nor with themselves.
 	 */
-	public TextEdit[]? additionalTextEdits { get; set; }
+	public Array<TextEdit> additionalTextEdits { get; set; }
 
 	/**
 	 * An optional command that is executed *after* inserting this completion. *Note* that
@@ -338,6 +341,6 @@ class LanguageServer.CompletionItem : Object {
  * in the editor.
  */
 class LanguageServer.CompletionList : Object {
-	public bool isIncomplete		{ get; set; }
-	public CompletionItem[] items 	{ get; set; }
+	public bool isIncomplete			{ get; set; }
+	public Array<CompletionItem> items 	{ get; set; }
 }

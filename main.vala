@@ -784,92 +784,43 @@ class Vls.Server {
                     kind = CompletionItemKind.Property
                 });
 
-            // do extra specific stuff for classes/interfaces
-            if (object_type is Vala.Class) {
-                var class_type = object_type as Vala.Class;
-
-                log.printf("completion: type is class\n");
-                foreach (var constant_sym in class_type.get_constants ()) {
-                    completions.add (new CompletionItem () {
-                        label = constant_sym.name,
-                        kind = CompletionItemKind.Value
-                    });
-                }
-
-                foreach (var field_sym in class_type.get_fields ())
-                    completions.add (new CompletionItem () {
-                        label = field_sym.name,
-                        kind = CompletionItemKind.Field
-                    });
-
-                // get inner types
-                foreach (var class_sym in class_type.get_classes ())
-                    completions.add (new CompletionItem () {
-                        label = class_sym.name,
-                        kind = CompletionItemKind.Class
-                    });
-
-                foreach (var struct_sym in class_type.get_structs ())
-                    completions.add (new CompletionItem () {
-                        label = struct_sym.name,
-                        kind = CompletionItemKind.Class
-                    });
-
-                foreach (var enum_sym in class_type.get_enums ())
-                    completions.add (new CompletionItem () {
-                        label = enum_sym.name,
-                        kind = CompletionItemKind.Enum
-                    });
-
-                foreach (var delegate_sym in class_type.get_delegates ())
-                    completions.add (new CompletionItem () {
-                        label = delegate_sym.name,
-                        kind = CompletionItemKind.Class
-                    });
-            } else if (object_type is Vala.Interface) {
-                var iface_type = object_type as Vala.Interface;
-
-                foreach (var constant_sym in iface_type.get_constants ()) {
-                    completions.add (new CompletionItem () {
-                        label = constant_sym.name,
-                        kind = CompletionItemKind.Value
-                    });
-                }
-
-                foreach (var field_sym in iface_type.get_fields ())
-                    completions.add (new CompletionItem () {
-                        label = field_sym.name,
-                        kind = CompletionItemKind.Field
-                    });
-
-                // get inner types
-                foreach (var class_sym in iface_type.get_classes ())
-                    completions.add (new CompletionItem () {
-                        label = class_sym.name,
-                        kind = CompletionItemKind.Class
-                    });
-
-                foreach (var struct_sym in iface_type.get_structs ())
-                    completions.add (new CompletionItem () {
-                        label = struct_sym.name,
-                        kind = CompletionItemKind.Class
-                    });
-
-                foreach (var enum_sym in iface_type.get_enums ())
-                    completions.add (new CompletionItem () {
-                        label = enum_sym.name,
-                        kind = CompletionItemKind.Enum
-                    });
-
-                foreach (var delegate_sym in iface_type.get_delegates ())
-                    completions.add (new CompletionItem () {
-                        label = delegate_sym.name,
-                        kind = CompletionItemKind.Class
-                    });
-
-            } else {
-                log.printf("something else\n");
+            foreach (var constant_sym in object_type.get_constants ()) {
+                completions.add (new CompletionItem () {
+                    label = constant_sym.name,
+                    kind = CompletionItemKind.Value
+                });
             }
+
+            foreach (var field_sym in object_type.get_fields ())
+                completions.add (new CompletionItem () {
+                    label = field_sym.name,
+                    kind = CompletionItemKind.Field
+                });
+
+            // get inner types
+            foreach (var class_sym in object_type.get_classes ())
+                completions.add (new CompletionItem () {
+                    label = class_sym.name,
+                    kind = CompletionItemKind.Class
+                });
+
+            foreach (var struct_sym in object_type.get_structs ())
+                completions.add (new CompletionItem () {
+                    label = struct_sym.name,
+                    kind = CompletionItemKind.Class
+                });
+
+            foreach (var enum_sym in object_type.get_enums ())
+                completions.add (new CompletionItem () {
+                    label = enum_sym.name,
+                    kind = CompletionItemKind.Enum
+                });
+
+            foreach (var delegate_sym in object_type.get_delegates ())
+                completions.add (new CompletionItem () {
+                    label = delegate_sym.name,
+                    kind = CompletionItemKind.Class
+                });
 
             log.printf(@"completions.size = $(completions.size)\n");
         } else if (type is Vala.Enum) {

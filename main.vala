@@ -7,6 +7,15 @@ struct CompileCommand {
     string command;
 }
 
+enum Vls.CompletionType {
+    /**
+     * for MemberAccess and PointerIndirection
+     */
+    MemberAccess,
+
+    /* TODO: add more categories */
+}
+
 class Vls.TextDocument : Object {
     private Context ctx;
     private string filename;
@@ -985,7 +994,29 @@ class Vls.Server {
         }
 
         var pos = p.position.to_libvala ();
-        pos.character -= 1;
+        long loc = (long) Server.get_string_pos (doc.file.content, p.position.line, p.position.character-1);
+        unichar c = doc.file.content.get_char (loc);
+        Vls.CompletionType? completion_type = null;
+
+        // determine the type of autocompletion we have to do
+        if (c == '.') { // member access
+            pos.character -= 1;
+            completion_type = CompletionType.MemberAccess;
+        } else if (c == '>') { // pointer access
+            if (loc > 0 && doc.file.content.get_char (loc-1) == '-') {
+                pos.character -= 2;
+                completion_type = CompletionType.MemberAccess;
+            } else {
+                log.printf ("ignoring '>' without preceding '-'\n");
+                reply_to_client (method, client, id, buildDict (null));
+                return;
+            }
+        } else {
+            log.printf ("TODO for '%s'\n", c.to_string ());
+            reply_to_client (method, client, id, buildDict (null));
+            return;
+        }
+
         var fs = new FindSymbol (doc.file, pos); 
 
         Vala.CodeNode best = null;

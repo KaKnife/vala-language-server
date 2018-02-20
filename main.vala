@@ -977,8 +977,16 @@ class Vls.Server {
             log.printf ("type is %s", type.to_string ());
 
             add_completions_for_type (type, completions);
+        } else if (best is Vala.Expression) {
+            Vala.TypeSymbol type;
+            var expr = best as Vala.Expression;
+
+            type = expr.value_type.data_type;
+            log.printf ("type is %s\n", type.to_string ());
+
+            add_completions_for_type (type, completions);
         } else {
-            log.printf (@"some other type of expression: $(best)");
+            log.printf (@"some other type of expression: $(best)\n");
         }
     }
 

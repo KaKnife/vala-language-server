@@ -425,7 +425,7 @@ class Vls.Server {
                     definitionProvider: new Variant.boolean (true),
                     completionProvider: buildDict(
                         resolveProvider: new Variant.boolean (false),
-                        triggerCharacters: new Variant.strv (new string[] { ".", "->" })
+                        triggerCharacters: new Variant.strv (new string[] { ".", ">", " ", "(", "[" })
                     )
                 )
             ));
@@ -744,7 +744,206 @@ class Vls.Server {
         }
     }
 
-    void add_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions) {
+    void add_completions_for_type (Vala.TypeSymbol type, Gee.ArrayList<CompletionItem> completions) {
+        if (type is Vala.ObjectTypeSymbol) {
+            /**
+             * Complete the members of this object, such as the fields,
+             * properties, and methods.
+             */
+            var object_type = type as Vala.ObjectTypeSymbol;
+
+            log.printf("completion: type is object\n");
+
+            foreach (var method_sym in object_type.get_methods ()) {
+                if (method_sym.name == ".new")
+                    continue;
+                completions.add (new CompletionItem () {
+                    label = method_sym.name,
+                    kind = CompletionItemKind.Method
+                });
+            }
+
+            foreach (var signal_sym in object_type.get_signals ())
+                completions.add (new CompletionItem () {
+                    label = signal_sym.name,
+                    kind = CompletionItemKind.Method
+                });
+
+            foreach (var prop_sym in object_type.get_properties ())
+                completions.add (new CompletionItem () {
+                    label = prop_sym.name,
+                    kind = CompletionItemKind.Property
+                });
+
+            // do extra specific stuff for classes/interfaces
+            if (object_type is Vala.Class) {
+                var class_type = object_type as Vala.Class;
+
+                log.printf("completion: type is class\n");
+                foreach (var constant_sym in class_type.get_constants ()) {
+                    completions.add (new CompletionItem () {
+                        label = constant_sym.name,
+                        kind = CompletionItemKind.Value
+                    });
+                }
+
+                foreach (var field_sym in class_type.get_fields ())
+                    completions.add (new CompletionItem () {
+                        label = field_sym.name,
+                        kind = CompletionItemKind.Field
+                    });
+
+                // get inner types
+                foreach (var class_sym in class_type.get_classes ())
+                    completions.add (new CompletionItem () {
+                        label = class_sym.name,
+                        kind = CompletionItemKind.Class
+                    });
+
+                foreach (var struct_sym in class_type.get_structs ())
+                    completions.add (new CompletionItem () {
+                        label = struct_sym.name,
+                        kind = CompletionItemKind.Class
+                    });
+
+                foreach (var enum_sym in class_type.get_enums ())
+                    completions.add (new CompletionItem () {
+                        label = enum_sym.name,
+                        kind = CompletionItemKind.Enum
+                    });
+
+                foreach (var delegate_sym in class_type.get_delegates ())
+                    completions.add (new CompletionItem () {
+                        label = delegate_sym.name,
+                        kind = CompletionItemKind.Class
+                    });
+            } else if (object_type is Vala.Interface) {
+                var iface_type = object_type as Vala.Interface;
+
+                foreach (var constant_sym in iface_type.get_constants ()) {
+                    completions.add (new CompletionItem () {
+                        label = constant_sym.name,
+                        kind = CompletionItemKind.Value
+                    });
+                }
+
+                foreach (var field_sym in iface_type.get_fields ())
+                    completions.add (new CompletionItem () {
+                        label = field_sym.name,
+                        kind = CompletionItemKind.Field
+                    });
+
+                // get inner types
+                foreach (var class_sym in iface_type.get_classes ())
+                    completions.add (new CompletionItem () {
+                        label = class_sym.name,
+                        kind = CompletionItemKind.Class
+                    });
+
+                foreach (var struct_sym in iface_type.get_structs ())
+                    completions.add (new CompletionItem () {
+                        label = struct_sym.name,
+                        kind = CompletionItemKind.Class
+                    });
+
+                foreach (var enum_sym in iface_type.get_enums ())
+                    completions.add (new CompletionItem () {
+                        label = enum_sym.name,
+                        kind = CompletionItemKind.Enum
+                    });
+
+                foreach (var delegate_sym in iface_type.get_delegates ())
+                    completions.add (new CompletionItem () {
+                        label = delegate_sym.name,
+                        kind = CompletionItemKind.Class
+                    });
+
+            } else {
+                log.printf("something else\n");
+            }
+
+            log.printf(@"completions.size = $(completions.size)\n");
+        } else if (type is Vala.Enum) {
+            /**
+             * Complete members of this enum, such as the values, methods,
+             * and constants.
+             */
+            var enum_type = type as Vala.Enum;
+
+            foreach (var value_sym in enum_type.get_values ())
+                completions.add (new CompletionItem () {
+                    label = value_sym.name,
+                    kind = CompletionItemKind.Value
+                });
+
+            foreach (var method_sym in enum_type.get_methods ())
+                completions.add (new CompletionItem () {
+                    label = method_sym.name,
+                    kind = CompletionItemKind.Method
+                });
+
+            foreach (var constant_sym in enum_type.get_constants ())
+                completions.add (new CompletionItem () {
+                    label = constant_sym.name,
+                    kind = CompletionItemKind.Field /* FIXME: is this appropriate? */
+                });
+        } else if (type is Vala.ErrorDomain) {
+            /**
+             * Get all the members of the error domain, such as the error
+             * codes and the methods.
+             */
+            var errdomain_type = type as Vala.ErrorDomain;
+
+            foreach (var code_sym in errdomain_type.get_codes ())
+                completions.add (new CompletionItem () {
+                    label = code_sym.name,
+                    kind = CompletionItemKind.Value
+                });
+
+            foreach (var method_sym in errdomain_type.get_codes ())
+                completions.add (new CompletionItem () {
+                    label = method_sym.name,
+                    kind = CompletionItemKind.Method
+                });
+        } else if (type is Vala.Struct) {
+            /**
+             * Gets all of the members of the struct.
+             */
+            var struct_type = type as Vala.Struct;
+
+            foreach (var constant_sym in struct_type.get_constants ())
+                completions.add (new CompletionItem () {
+                    label = constant_sym.name,
+                    kind = CompletionItemKind.Value
+                });
+
+            foreach (var field_sym in struct_type.get_fields ())
+                completions.add (new CompletionItem () {
+                    label = field_sym.name,
+                    kind = CompletionItemKind.Field
+                });
+
+            foreach (var method_sym in struct_type.get_methods ())
+                completions.add (new CompletionItem () {
+                    label = method_sym.name,
+                    kind = CompletionItemKind.Method
+                });
+
+            foreach (var prop_sym in struct_type.get_properties ())
+                completions.add (new CompletionItem () {
+                    label = prop_sym.name,
+                    kind = CompletionItemKind.Property
+                });
+        } else if (type is Vala.Delegate) {
+            var delg_type = type as Vala.Delegate;
+
+            log.printf (@"delegate type \n");
+        } else {
+            log.printf (@"unknown type node $(type).\n");
+        }
+    }
+
+    void add_member_access_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions) {
         if (best is Vala.MemberAccess) {
             var ma = best as Vala.MemberAccess;
             Vala.TypeSymbol type;
@@ -760,210 +959,18 @@ class Vls.Server {
 
             log.printf ("type is %s", type.to_string ());
             
-            if (type is Vala.ObjectTypeSymbol) {
-                /**
-                 * Complete the members of this object, such as the fields,
-                 * properties, and methods.
-                 */
-                var object_type = type as Vala.ObjectTypeSymbol;
-
-                log.printf("completion: type is object\n");
-
-                foreach (var method_sym in object_type.get_methods ()) {
-                    if (method_sym.name == ".new")
-                        continue;
-                    completions.add (new CompletionItem () {
-                        label = method_sym.name,
-                        kind = CompletionItemKind.Method
-                    });
-                }
-
-                foreach (var signal_sym in object_type.get_signals ())
-                    completions.add (new CompletionItem () {
-                        label = signal_sym.name,
-                        kind = CompletionItemKind.Method
-                    });
-
-                foreach (var prop_sym in object_type.get_properties ())
-                    completions.add (new CompletionItem () {
-                        label = prop_sym.name,
-                        kind = CompletionItemKind.Property
-                    });
-
-                // do extra specific stuff for classes/interfaces
-                if (object_type is Vala.Class) {
-                    var class_type = object_type as Vala.Class;
-
-                    log.printf("completion: type is class\n");
-                    foreach (var constant_sym in class_type.get_constants ()) {
-                        completions.add (new CompletionItem () {
-                            label = constant_sym.name,
-                            kind = CompletionItemKind.Value
-                        });
-                    }
-
-                    foreach (var field_sym in class_type.get_fields ())
-                        completions.add (new CompletionItem () {
-                            label = field_sym.name,
-                            kind = CompletionItemKind.Field
-                        });
-
-                    // get inner types
-                    foreach (var class_sym in class_type.get_classes ())
-                        completions.add (new CompletionItem () {
-                            label = class_sym.name,
-                            kind = CompletionItemKind.Class
-                        });
-
-                    foreach (var struct_sym in class_type.get_structs ())
-                        completions.add (new CompletionItem () {
-                            label = struct_sym.name,
-                            kind = CompletionItemKind.Class
-                        });
-
-                    foreach (var enum_sym in class_type.get_enums ())
-                        completions.add (new CompletionItem () {
-                            label = enum_sym.name,
-                            kind = CompletionItemKind.Enum
-                        });
-
-                    foreach (var delegate_sym in class_type.get_delegates ())
-                        completions.add (new CompletionItem () {
-                            label = delegate_sym.name,
-                            kind = CompletionItemKind.Class
-                        });
-                } else if (object_type is Vala.Interface) {
-                    var iface_type = object_type as Vala.Interface;
-
-                    foreach (var constant_sym in iface_type.get_constants ()) {
-                        completions.add (new CompletionItem () {
-                            label = constant_sym.name,
-                            kind = CompletionItemKind.Value
-                        });
-                    }
-
-                    foreach (var field_sym in iface_type.get_fields ())
-                        completions.add (new CompletionItem () {
-                            label = field_sym.name,
-                            kind = CompletionItemKind.Field
-                        });
-
-                    // get inner types
-                    foreach (var class_sym in iface_type.get_classes ())
-                        completions.add (new CompletionItem () {
-                            label = class_sym.name,
-                            kind = CompletionItemKind.Class
-                        });
-
-                    foreach (var struct_sym in iface_type.get_structs ())
-                        completions.add (new CompletionItem () {
-                            label = struct_sym.name,
-                            kind = CompletionItemKind.Class
-                        });
-
-                    foreach (var enum_sym in iface_type.get_enums ())
-                        completions.add (new CompletionItem () {
-                            label = enum_sym.name,
-                            kind = CompletionItemKind.Enum
-                        });
-
-                    foreach (var delegate_sym in iface_type.get_delegates ())
-                        completions.add (new CompletionItem () {
-                            label = delegate_sym.name,
-                            kind = CompletionItemKind.Class
-                        });
-
-                } else {
-                    log.printf("something else\n");
-                }
-
-                log.printf(@"completions.size = $(completions.size)\n");
-            } else if (type is Vala.Enum) {
-                /**
-                 * Complete members of this enum, such as the values, methods,
-                 * and constants.
-                 */
-                var enum_type = type as Vala.Enum;
-
-                foreach (var value_sym in enum_type.get_values ())
-                    completions.add (new CompletionItem () {
-                        label = value_sym.name,
-                        kind = CompletionItemKind.Value
-                    });
-
-                foreach (var method_sym in enum_type.get_methods ())
-                    completions.add (new CompletionItem () {
-                        label = method_sym.name,
-                        kind = CompletionItemKind.Method
-                    });
-
-                foreach (var constant_sym in enum_type.get_constants ())
-                    completions.add (new CompletionItem () {
-                        label = constant_sym.name,
-                        kind = CompletionItemKind.Field /* FIXME: is this appropriate? */
-                    });
-            } else if (type is Vala.ErrorDomain) {
-                /**
-                 * Get all the members of the error domain, such as the error
-                 * codes and the methods.
-                 */
-                var errdomain_type = type as Vala.ErrorDomain;
-
-                foreach (var code_sym in errdomain_type.get_codes ())
-                    completions.add (new CompletionItem () {
-                        label = code_sym.name,
-                        kind = CompletionItemKind.Value
-                    });
-
-                foreach (var method_sym in errdomain_type.get_codes ())
-                    completions.add (new CompletionItem () {
-                        label = method_sym.name,
-                        kind = CompletionItemKind.Method
-                    });
-            } else if (type is Vala.Struct) {
-                /**
-                 * Gets all of the members of the struct.
-                 */
-                var struct_type = type as Vala.Struct;
-
-                foreach (var constant_sym in struct_type.get_constants ())
-                    completions.add (new CompletionItem () {
-                        label = constant_sym.name,
-                        kind = CompletionItemKind.Value
-                    });
-
-                foreach (var field_sym in struct_type.get_fields ())
-                    completions.add (new CompletionItem () {
-                        label = field_sym.name,
-                        kind = CompletionItemKind.Field
-                    });
-
-                foreach (var method_sym in struct_type.get_methods ())
-                    completions.add (new CompletionItem () {
-                        label = method_sym.name,
-                        kind = CompletionItemKind.Method
-                    });
-
-                foreach (var prop_sym in struct_type.get_properties ())
-                    completions.add (new CompletionItem () {
-                        label = prop_sym.name,
-                        kind = CompletionItemKind.Property
-                    });
-            } else if (type is Vala.Delegate) {
-                var delg_type = type as Vala.Delegate;
-
-                log.printf (@"delegate type \n");
-            } else {
-                log.printf (@"unknown type node $(type).\n");
-            }
-        } else if (best is Vala.ElementAccess) {
-            // TODO
+            add_completions_for_type (type, completions);
         } else if (best is Vala.PointerIndirection) {
-            // TODO
+            var pi = best as Vala.PointerIndirection;
+            Vala.TypeSymbol type;
+
+            type = pi.inner.value_type.data_type;
+            log.printf ("type is %s", type.to_string ());
+
+            add_completions_for_type (type, completions);
         } else {
             log.printf (@"some other type of expression: $(best)");
         }
-
     }
 
     void textDocumentCompletion (Jsonrpc.Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1008,9 +1015,9 @@ class Vls.Server {
         }
 
         var completions = new Gee.ArrayList<CompletionItem> ();
-        add_completions (best, completions);
-
         var completions_variants = new ArrayList<Variant>();
+
+        add_member_access_completions (best, completions);
 
         foreach (var obj in completions) {
             try {

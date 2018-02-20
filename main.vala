@@ -952,7 +952,66 @@ class Vls.Server {
         }
     }
 
-    void add_member_access_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions) {
+    Vala.TypeSymbol? get_typesymbol_member (Vala.TypeSymbol type, string member_name) {
+        if (type is Vala.ObjectTypeSymbol) {
+            var object_type = type as Vala.ObjectTypeSymbol;
+
+            foreach (var constant_sym in object_type.get_constants ())
+                if (constant_sym.name == member_name && constant_sym.type_reference != null)
+                    return constant_sym.type_reference.data_type;
+
+            foreach (var field_sym in object_type.get_fields ())
+                if (field_sym.name == member_name && field_sym.variable_type != null)
+                    return field_sym.variable_type.data_type;
+            
+            foreach (var prop_sym in object_type.get_properties ())
+                if (prop_sym.name == member_name && prop_sym.property_type != null)
+                    return prop_sym.property_type.data_type;
+
+            foreach (var class_sym in object_type.get_classes ())
+                if (class_sym.name == member_name)
+                    return class_sym;
+            
+            foreach (var struct_sym in object_type.get_structs ())
+                if (struct_sym.name == member_name)
+                    return struct_sym;
+            
+            foreach (var enum_sym in object_type.get_enums ())
+                if (enum_sym.name == member_name)
+                    return enum_sym;
+
+        } else if (type is Vala.Enum) {
+            var enum_type = type as Vala.Enum;
+
+            foreach (var value_sym in enum_type.get_values ())
+                if (value_sym.name == member_name && value_sym.type_reference != null)
+                    return value_sym.type_reference.data_type;
+        } else if (type is Vala.ErrorDomain) {
+            var errdomain_type = type as Vala.ErrorDomain;
+
+            foreach (var code_sym in errdomain_type.get_codes ())
+                if (code_sym.name == member_name)
+                    return code_sym;
+        } else if (type is Vala.Struct) {
+            var struct_type = type as Vala.Struct;
+
+            foreach (var field_sym in struct_type.get_fields ())
+                if (field_sym.name == member_name && field_sym.variable_type != null)
+                    return field_sym.variable_type.data_type;
+            
+            foreach (var const_sym in struct_type.get_constants ())
+                if (const_sym.name == member_name && const_sym.type_reference != null)
+                    return const_sym.type_reference.data_type;
+            
+            foreach (var prop_sym in struct_type.get_properties ())
+                if (prop_sym.name == member_name && prop_sym.property_type != null)
+                    return prop_sym.property_type.data_type;
+        }
+
+        return null;
+    }
+
+    void add_member_access_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions, string token) {
         if (best is Vala.MemberAccess) {
             var ma = best as Vala.MemberAccess;
             Vala.TypeSymbol type;
@@ -964,7 +1023,16 @@ class Vls.Server {
                     ma.target_type.to_string (),
                     ma.formal_target_type != null ? ma.formal_target_type.to_string () : null);
             log.printf ("inner is %s\n", ma.inner != null ? ma.inner.to_string () : null);
+
             type = ma.value_type.data_type;
+            if (ma.formal_value_type == null) {
+                // this is likely a member access with an implicit 'this'
+                var ts = get_typesymbol_member (type, token);
+                log.printf ("get_typesymbol_member (%s, %s) = %s\n", 
+                    type.to_string (), token, ts.to_string ());
+                if (ts!= null)
+                    type = ts;
+            }
 
             log.printf ("type is %s", type.to_string ());
             
@@ -1045,18 +1113,19 @@ class Vls.Server {
             }
         }
 
+        string token;
         {
             var sr = best.source_reference;
             var from = (long)Server.get_string_pos (doc.file.content, sr.begin.line-1, sr.begin.column-1);
             var to = (long)Server.get_string_pos (doc.file.content, sr.end.line-1, sr.end.column);
-            string contents = doc.file.content [from:to];
-            log.printf ("Got node: %s @ %s = %s\n", best.type_name, sr.to_string(), contents);
+            token = doc.file.content [from:to];
+            log.printf ("Got node: %s @ %s = %s\n", best.type_name, sr.to_string(), token);
         }
 
         var completions = new Gee.ArrayList<CompletionItem> ();
         var completions_variants = new ArrayList<Variant>();
 
-        add_member_access_completions (best, completions);
+        add_member_access_completions (best, completions, token);
 
         foreach (var obj in completions) {
             try {

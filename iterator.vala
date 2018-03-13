@@ -472,18 +472,18 @@ class Vls.FindScope : Vls.Finder<Vala.Scope> {
 
         if (range == null) {
             stderr.printf ("range for %s is empty\n", node.type_name);
-            return false;
+            return match (scope_sym);
         }
 
         if (range.start.line > pos.line || range.end.line < pos.line) {
             stderr.printf ("line not contained in range\n");
-            return false;
+            return match (scope_sym);
         }
 
         if ((range.start.line == pos.line && range.start.character > pos.character)
          || (range.end.line == pos.line && range.end.character < pos.character)) {
              stderr.printf ("column not contained in range\n");
-             return false;
+             return match (scope_sym);
         }
         return true;
     }
@@ -497,5 +497,35 @@ class Vls.FindScope : Vls.Finder<Vala.Scope> {
 
     protected override void add_result (Vala.CodeNode node) {
         result.add ((node as Vala.Symbol).scope);
+    }
+}
+
+class Vls.FindToken : Vls.Finder<Vala.Symbol> {
+    string token;
+    LanguageServer.Position pos;
+
+    protected override bool match (Vala.CodeNode node) {
+        if (!(node is Vala.Symbol))
+            return false;
+        
+        var sym = node as Vala.Symbol;
+        
+        if (sym.name != token)
+            return false;
+
+        // TODO: this can give us false positives
+
+        return true;
+    }
+
+    public FindToken (Vala.SourceFile file, LanguageServer.Position pos, string token) {
+        this.token = token;
+        this.pos = pos;
+        this.result = new Gee.ArrayList<Vala.Symbol> ();
+        this.visit_source_file (file);
+    }
+
+    protected override void add_result (Vala.CodeNode node) {
+        result.add (node as Vala.Symbol);
     }
 }

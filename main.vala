@@ -962,6 +962,35 @@ class Vls.Server {
         return null;
     }
 
+    Vala.TypeSymbol? get_type_symbol (Vala.DataType dtype) {
+        if (dtype is Vala.InterfaceType)
+            return (dtype as Vala.InterfaceType).interface_symbol;
+        if (dtype is Vala.ClassType)
+            return (dtype as Vala.ClassType).class_symbol;
+        if (dtype is Vala.ValueType)
+            return (dtype as Vala.ValueType).type_symbol;
+        if (dtype is Vala.ObjectType)
+            return (dtype as Vala.ObjectType).type_symbol;
+        if (dtype is Vala.ErrorType)
+            return (dtype as Vala.ErrorType).error_domain;
+        // TODO: array type
+        if (dtype is Vala.FieldPrototype)
+            return get_type_symbol ((dtype as Vala.FieldPrototype).field_symbol.variable_type);
+        if (dtype != null)
+            log.printf ("dtype is something else: %s\n", dtype.to_string ());
+        if (dtype is Vala.UnresolvedType)
+            log.printf ("dtype is UnresolvedType\n");
+        if (dtype is Vala.ReferenceType)
+            log.printf ("dtype is ReferenceType\n");
+        if (dtype is Vala.InvalidType)
+            log.printf ("dtype is InvalidType\n");
+        if (dtype is Vala.VoidType)
+            log.printf ("dtype is VoidType\n");
+        if (dtype is Vala.NullType)
+            log.printf ("dtype is NullType\n");
+        return null;
+    }
+
     void add_member_access_completions (Vala.CodeNode best, Gee.ArrayList<CompletionItem> completions, string token) {
         if (best is Vala.MemberAccess) {
             var ma = best as Vala.MemberAccess;
@@ -975,7 +1004,7 @@ class Vls.Server {
                     ma.formal_target_type != null ? ma.formal_target_type.to_string () : null);
             log.printf ("inner is %s\n", ma.inner != null ? ma.inner.to_string () : null);
 
-            type = ma.value_type.data_type;
+            type = get_type_symbol (ma.value_type);
 
             if (type == null) {
                 // This may be the last token in a failed parse.
@@ -1001,25 +1030,30 @@ class Vls.Server {
             type = pi.inner.value_type.data_type;
             log.printf ("type is %s", type.to_string ());
 
-            add_completions_for_type (type, completions);
+            if (type != null)
+                add_completions_for_type (type, completions);
         } else if (best is Vala.Expression) {
             Vala.TypeSymbol type;
             var expr = best as Vala.Expression;
 
-            type = expr.value_type.data_type;
+            type = get_type_symbol (expr.value_type);
             log.printf ("type is %s\n", type.to_string ());
 
-            add_completions_for_type (type, completions);
-        } else if (best is Vala.Parameter) {
+            if (type != null)
+                add_completions_for_type (type, completions);
+        } else if (best is Vala.Variable) {
             Vala.TypeSymbol type;
-            var pram = best as Vala.Parameter;
+            var pram = best as Vala.Variable;
 
-            type = pram.variable_type.data_type;
+            type = get_type_symbol (pram.variable_type);
             log.printf ("type is %s\n", type.to_string ());
 
-            add_completions_for_type (type, completions);
+            if (type != null)
+                add_completions_for_type (type, completions);
+        } else if (best is Vala.TypeSymbol) {
+            add_completions_for_type (best as Vala.TypeSymbol, completions);
         } else {
-            log.printf (@"some other type of expression: $(best)\n");
+            log.printf (@"some other type of expression: $(best.type_name) @ $(best)\n");
         }
     }
 
@@ -1059,7 +1093,7 @@ class Vls.Server {
             return;
         }
 
-        var fs = new FindSymbol (doc.file, pos); 
+        Finder<Vala.CodeNode> fs = new FindSymbol (doc.file, pos); 
 
         Vala.CodeNode? best = null;
 
@@ -1087,32 +1121,40 @@ class Vls.Server {
             log.printf ("found %d scopes\n", fsc.result.size);
 
             foreach (var scope in fsc.result) {
-                var symtab = scope.get_symbol_table ();
+                for (var pscope = scope; pscope != null; pscope = pscope.parent_scope) {
+                    var symtab = pscope.get_symbol_table ();
 
-                if (symtab == null) {
-                    log.printf ("scope has empty symbol table\n");
-                    continue;
-                }
+                    if (symtab == null) {
+                        log.printf ("scope has empty symbol table\n");
+                        continue;
+                    }
 
-                foreach (var key in symtab.get_keys ()) {
-                    if (key == token) {
-                        var node = symtab [key];
-                        if (best == null)
-                            best = node;
-                        else if (best.source_reference.begin.column <= node.source_reference.begin.column
-                              && node.source_reference.end.column <= best.source_reference.end.column)
-                            best = node;
+                    foreach (var key in symtab.get_keys ()) {
+                        if (key == token) {
+                            var node = symtab [key];
+                            if (best == null)
+                                best = node;
+                            else if (best.source_reference.begin.column <= node.source_reference.begin.column
+                                && node.source_reference.end.column <= best.source_reference.end.column)
+                                best = node;
+                        }
                     }
                 }
             }
 
             if (best == null) {
                 log.printf ("no matching symbol found for token\n");
-                reply_to_client (method, client, id, buildDict(null));
-                return;
-            }
+                fs = new FindToken (doc.file, pos, token);
+            } else
+                log.printf ("found matching symbol: %s\n", best.to_string ());
+        }
 
-            log.printf ("found matching symbol: %s\n", best.to_string ());
+        // check again if [fs] changed
+        
+        if (best == null && fs.result.size == 0) {
+            log.printf ("no other results found\n");
+            reply_to_client (method, client, id, buildDict(null));
+            return;
         } else {
             foreach (var node in fs.result) {
                 if (best == null) {

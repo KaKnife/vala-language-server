@@ -976,7 +976,12 @@ class Vls.Server {
             log.printf ("inner is %s\n", ma.inner != null ? ma.inner.to_string () : null);
 
             type = ma.value_type.data_type;
-            if (ma.formal_value_type == null) {
+
+            if (type == null) {
+                // This may be the last token in a failed parse.
+                // It has no type information, but we can try searching
+                // through the scope hierarchy for the symbol.
+            } else if (ma.formal_value_type == null) {
                 // this is likely a member access with an implicit 'this'
                 var ts = get_typesymbol_member (type, token);
                 log.printf ("get_typesymbol_member (%s, %s) = %s\n", 
@@ -987,7 +992,8 @@ class Vls.Server {
 
             log.printf ("type is %s", type.to_string ());
             
-            add_completions_for_type (type, completions);
+            if (type != null)
+                add_completions_for_type (type, completions);
         } else if (best is Vala.PointerIndirection) {
             var pi = best as Vala.PointerIndirection;
             Vala.TypeSymbol type;
@@ -1031,6 +1037,7 @@ class Vls.Server {
             completion_type = CompletionType.MemberAccess;
         } else if (c == '>') { // pointer access
             if (loc > 0 && doc.file.content.get_char (loc-1) == '-') {
+                loc -= 1;
                 pos.character -= 2;
                 completion_type = CompletionType.MemberAccess;
             } else {
@@ -1046,21 +1053,66 @@ class Vls.Server {
 
         var fs = new FindSymbol (doc.file, pos); 
 
-        Vala.CodeNode best = null;
+        Vala.CodeNode? best = null;
 
-        log.printf (@"completion: found $(fs.result.size) results\n");
+        log.printf (@"completion: found $(fs.result.size) symbols\n");
 
         if (fs.result.size == 0) {
             reply_to_client (method, client, id, buildDict(null));
-            return;
-        }
 
-        foreach (var node in fs.result) {
+            // try parsing a  
+            long end = loc-1;
+            long start = end;
+
+            c = doc.file.content.get_char (end);
+            while (c.isalnum () && start > 0) {
+                start--;
+                c = doc.file.content.get_char (start);
+            }
+
+            start++;
+
+            string token = doc.file.content [start:end+1];
+
+            log.printf ("found token '%s' from %ld to %ld\n", token, start, end);
+
+            var fsc = new FindScope (doc.file, pos);
+
+            log.printf ("found %d scopes\n", fsc.result.size);
+
+            foreach (var scope in fsc.result) {
+                if (best != null)
+                    return;
+                
+                var symtab = scope.get_symbol_table ();
+
+                if (symtab == null) {
+                    log.printf ("scope has empty symbol table\n");
+                    continue;
+                }
+
+                foreach (var key in symtab.get_keys ()) {
+                    if (key == token) {
+                        best = symtab [key];
+                        break;
+                    }
+                }
+            }
+
             if (best == null) {
-                best = node;
-            } else if (best.source_reference.begin.column <= node.source_reference.begin.column &&
-                       node.source_reference.end.column <= best.source_reference.end.column) {
-                best = node;
+                log.printf ("no matching symbol found for token\n");
+                return;
+            }
+
+            log.printf ("found matching symbol: %s\n", best.to_string ());
+        } else {
+            foreach (var node in fs.result) {
+                if (best == null) {
+                    best = node;
+                } else if (best.source_reference.begin.column <= node.source_reference.begin.column &&
+                        node.source_reference.end.column <= best.source_reference.end.column) {
+                    best = node;
+                }
             }
         }
 

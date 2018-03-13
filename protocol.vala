@@ -72,6 +72,22 @@ class LanguageServer.Position : Object {
 			character = this.character
 		};
 	}
+
+	public int compareTo (Position other) {
+		if (line < other.line)
+			return -1;
+		
+		if (line > other.line)
+			return 1;
+
+		if (character < other.character)
+			return -1;
+		
+		if (character > other.character)
+			return 1;
+		
+		return 0;
+	}
 }
 
 class LanguageServer.Range : Object {
@@ -84,6 +100,31 @@ class LanguageServer.Range : Object {
 	 * The range's end position.
 	 */
 	public Position end { get; set; }
+
+	public Range.from_source_ref (Vala.SourceReference src_ref) {
+		this.start = new Position () {
+			line = src_ref.begin.line,
+			character = src_ref.begin.column
+		};
+		this.end = new Position () {
+			line = src_ref.end.line,
+			character = src_ref.end.column
+		};
+	}
+
+	/**
+	 * Returns a new range that is something more than the union
+	 * of this range and {@other}.
+	 */
+	public Range join (Range other) {
+		var min = start.compareTo (other.start) < 0 ? start : other.start;
+		var max = end.compareTo (other.end) > 0 ? end : other.end;
+
+		return new Range () {
+			start = new Position () { line = min.line, character = min.character },
+			end = new Position () { line = max.line, character = max.character }
+		};
+	}
 }
 
 class LanguageServer.Diagnostic : Object {

@@ -983,7 +983,7 @@ class Vls.Server {
                 // through the scope hierarchy for the symbol.
             } else if (ma.formal_value_type == null) {
                 // this is likely a member access with an implicit 'this'
-                var ts = get_typesymbol_member (type, token);
+                var ts = this.get_typesymbol_member (type, token);
                 log.printf ("get_typesymbol_member (%s, %s) = %s\n", 
                     type.to_string (), token, ts.to_string ());
                 if (ts!= null)
@@ -1007,6 +1007,14 @@ class Vls.Server {
             var expr = best as Vala.Expression;
 
             type = expr.value_type.data_type;
+            log.printf ("type is %s\n", type.to_string ());
+
+            add_completions_for_type (type, completions);
+        } else if (best is Vala.Parameter) {
+            Vala.TypeSymbol type;
+            var pram = best as Vala.Parameter;
+
+            type = pram.variable_type.data_type;
             log.printf ("type is %s\n", type.to_string ());
 
             add_completions_for_type (type, completions);
@@ -1058,8 +1066,6 @@ class Vls.Server {
         log.printf (@"completion: found $(fs.result.size) symbols\n");
 
         if (fs.result.size == 0) {
-            reply_to_client (method, client, id, buildDict(null));
-
             // try parsing a  
             long end = loc-1;
             long start = end;
@@ -1081,9 +1087,6 @@ class Vls.Server {
             log.printf ("found %d scopes\n", fsc.result.size);
 
             foreach (var scope in fsc.result) {
-                if (best != null)
-                    return;
-                
                 var symtab = scope.get_symbol_table ();
 
                 if (symtab == null) {
@@ -1093,14 +1096,19 @@ class Vls.Server {
 
                 foreach (var key in symtab.get_keys ()) {
                     if (key == token) {
-                        best = symtab [key];
-                        break;
+                        var node = symtab [key];
+                        if (best == null)
+                            best = node;
+                        else if (best.source_reference.begin.column <= node.source_reference.begin.column
+                              && node.source_reference.end.column <= best.source_reference.end.column)
+                            best = node;
                     }
                 }
             }
 
             if (best == null) {
                 log.printf ("no matching symbol found for token\n");
+                reply_to_client (method, client, id, buildDict(null));
                 return;
             }
 

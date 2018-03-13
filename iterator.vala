@@ -479,13 +479,13 @@ class Vls.FindScope : Vls.Finder<Vala.Scope> {
             stderr.printf ("line not contained in range\n");
             return false;
         }
-        if (range.start.character <= pos.character && pos.character <= range.end.character) {
-            stderr.printf ("Got scope node: %s\n", scope_sym.type_name);
-            return true;
-        } else {
-            stderr.printf ("column not contained in range\n");
-            return false;
+
+        if ((range.start.line == pos.line && range.start.character > pos.character)
+         || (range.end.line == pos.line && range.end.character < pos.character)) {
+             stderr.printf ("column not contained in range\n");
+             return false;
         }
+        return true;
     }
 
     public FindScope (Vala.SourceFile file, LanguageServer.Position pos) {

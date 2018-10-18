@@ -546,7 +546,7 @@ class Vls.Server {
         var changes = @params.lookup_value ("contentChanges", VariantType.ARRAY);
 
         var uri = (string) document.lookup_value ("uri", VariantType.STRING);
-        var version = (int) document.lookup_value ("version", VariantType.INT64);
+        var version = (int64) document.lookup_value ("version", VariantType.INT64);
         TextDocument? source = ctx.get_source_file (uri);
 
         if (source == null) {
@@ -573,7 +573,7 @@ class Vls.Server {
             return;
         }
 
-        source.version = version;
+        source.version = (int) version;
 
         var iter = changes.iterator ();
         Variant? elem = null;

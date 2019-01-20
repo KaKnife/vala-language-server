@@ -11,12 +11,12 @@ deps = [
     libvala,
 ]
 
-#conf = configuration_data()
-#conf.set('LIBVALA_VERSION', libvala.version())
+conf = configuration_data()
+conf.set('LIBVALA_VERSION', libvala.version())
 
-#conf_vapi = configure_file(input: 'config.vala.in',
-#                           output: 'config.vala',
-#                           configuration: conf)
+conf_file = configure_file(input: 'config.vala.in',
+                           output: 'config.vala',
+                           configuration: conf)
 
 src = files([
     'main.vala',
@@ -29,6 +29,6 @@ src = files([
 
 executable('vala-language-server',
            dependencies: deps,
-           sources: src,
+           sources: [src, conf_file],
            vala_args: ['--pkg=posix', '--enable-gobject-tracing'],
            install: true)
